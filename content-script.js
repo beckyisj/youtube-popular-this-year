@@ -11,6 +11,7 @@ class YouTubePopularThisYear {
     this.observer = null;
     this.buttonAdded = false;
     this.waitObserver = null;
+    this.isLoading = false;
 
     this.init();
   }
@@ -141,6 +142,9 @@ class YouTubePopularThisYear {
   handlePopularThisYearClick() {
     console.log('YouTube Popular This Year: Button clicked');
 
+    // Prevent double-clicks while waiting for videos to load
+    if (this.isLoading) return;
+
     if (this.isActive) {
       this.resetToOriginal();
     } else {
@@ -149,30 +153,93 @@ class YouTubePopularThisYear {
   }
 
   applyPopularThisYearFilter() {
-    // Store original videos
-    this.originalVideos = this.extractVideoData();
+    this.isLoading = true;
 
-    // Filter videos from past 12 months - only exclude videos we're confident are older
-    this.filteredVideos = this.originalVideos.filter(video => {
-      // If we couldn't parse the date, include the video rather than silently dropping it
-      if (!video.uploadDate) return true;
-      return video.uploadDate >= this.twelveMonthsAgo;
-    });
-
-    // Sort by view count (descending)
-    this.filteredVideos.sort((a, b) => b.viewCount - a.viewCount);
-
-    // Update the display
-    this.updateVideoDisplay();
-
-    this.isActive = true;
-
-    // Update button state
+    // Show loading state on the button
     const button = document.querySelector('.popular-this-year-btn');
     if (button) {
-      button.classList.add('active');
-      button.textContent = 'Show All Videos';
+      button.textContent = 'Loading...';
+      button.disabled = true;
     }
+
+    // Wait for videos to be present in the DOM before filtering
+    this.waitForVideos().then(videoElements => {
+      this.isLoading = false;
+
+      if (videoElements.length === 0) {
+        console.log('YouTube Popular This Year: No videos found after waiting, filter not applied');
+        // Reset button to original state
+        const btn = document.querySelector('.popular-this-year-btn');
+        if (btn) {
+          btn.textContent = 'Popular This Year';
+          btn.disabled = false;
+        }
+        return;
+      }
+
+      // Store original videos
+      this.originalVideos = this.extractVideoData();
+
+      // Filter videos from past 12 months - only exclude videos we're confident are older
+      this.filteredVideos = this.originalVideos.filter(video => {
+        // If we couldn't parse the date, include the video rather than silently dropping it
+        if (!video.uploadDate) return true;
+        return video.uploadDate >= this.twelveMonthsAgo;
+      });
+
+      // Sort by view count (descending)
+      this.filteredVideos.sort((a, b) => b.viewCount - a.viewCount);
+
+      // Update the display
+      this.updateVideoDisplay();
+
+      this.isActive = true;
+
+      // Update button state
+      const btn = document.querySelector('.popular-this-year-btn');
+      if (btn) {
+        btn.classList.add('active');
+        btn.textContent = 'Show All Videos';
+        btn.disabled = false;
+      }
+    });
+  }
+
+  waitForVideos() {
+    const videoSelector = '#contents ytd-rich-item-renderer, #contents ytd-video-renderer, ytd-rich-item-renderer, ytd-video-renderer';
+
+    return new Promise((resolve) => {
+      // Check if videos are already in the DOM
+      const existing = document.querySelectorAll(videoSelector);
+      if (existing.length > 0) {
+        resolve(existing);
+        return;
+      }
+
+      console.log('YouTube Popular This Year: Waiting for videos to load...');
+
+      // Watch for videos to appear
+      const observer = new MutationObserver(() => {
+        const videos = document.querySelectorAll(videoSelector);
+        if (videos.length > 0) {
+          observer.disconnect();
+          clearTimeout(timeout);
+          resolve(videos);
+        }
+      });
+
+      observer.observe(document.body, {
+        childList: true,
+        subtree: true
+      });
+
+      // Give up after 10 seconds to avoid waiting forever
+      const timeout = setTimeout(() => {
+        observer.disconnect();
+        console.log('YouTube Popular This Year: Timed out waiting for videos');
+        resolve(document.querySelectorAll(videoSelector));
+      }, 10000);
+    });
   }
 
   resetToOriginal() {
